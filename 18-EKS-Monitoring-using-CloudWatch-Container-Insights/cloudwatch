@@ -1,0 +1,7 @@
+wget https://raw.githubusercontent.com/aws-samples/amazon-cloudwatch-container-insights/latest/k8s-deployment-manifest-templates/deployment-mode/daemonset/container-insights-monitoring/quickstart/cwagent-fluentd-quickstart.yaml 
+
+
+sed -i "s/{{cluster_name}}/eks/;s/{{region_name}}/us-east-1/" cwagent-fluentd-quickstart.yaml
+sed -i "s/{{cluster_name}}/eks/;s/{{region_name}}/us-west-2/" cwagent-fluentd-quickstart.yaml
+
+kubectl apply -f cwagent-fluentd-quickstart.yaml
