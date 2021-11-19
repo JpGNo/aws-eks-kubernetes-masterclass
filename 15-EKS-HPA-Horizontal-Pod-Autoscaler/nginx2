@@ -1,0 +1,150 @@
+# Deploy EFS CSI driver
+kubectl apply -k "github.com/kubernetes-sigs/aws-efs-csi-driver/deploy/kubernetes/overlays/stable/?ref=release-1.0"
+
+
+kubectl create namespace server
+
+
+# Additional permissions
+eksctl create iamserviceaccount \
+    --name default \
+    --namespace server \
+    --cluster eks \
+    --attach-policy-arn arn:aws:iam::111122223333:policy/UnicornPolicy \
+    --approve \
+    --override-existing-serviceaccounts --region us-east-1
+
+
+cat > efs-pvc.yaml << EOF
+---
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: server-efs-sc
+provisioner: efs.csi.aws.com
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: server-efs-pvc
+spec:
+  capacity:
+    storage: 5Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: server-efs-sc
+  csi:
+    driver: efs.csi.aws.com
+    volumeHandle: fs-01cb676a65f1f67be  # Replace the VolumeHandle's EFS ID
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: server-efs-storage-claim
+  namespace: server
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: server-efs-sc
+  resources:
+    requests:
+      storage: 5Gi
+EOF
+
+
+
+
+
+
+cat > deploy-server.yaml <<EOF
+#apiVersion: v1
+#kind: Namespace # create the namespace for this application
+#metadata:
+#  name: server
+---
+apiVersion: apps/v1
+kind: Deployment 
+metadata:
+  name: server-deployment
+  namespace: server
+spec:
+  selector:
+    matchLabels:
+      app: server
+  template:
+    metadata:
+      labels:
+        app: server
+    spec:
+      containers:
+      - name: server
+        image: 111122223333.dkr.ecr.us-west-2.amazonaws.com/test:server
+        ports:
+        - containerPort: 80
+        # Add EFS mount
+        volumeMounts:
+        - name: server-efs-pvc
+          mountPath: /efs/
+      volumes:
+      - name: server-efs-pvc
+        persistentVolumeClaim:
+          claimName: server-efs-storage-claim
+---
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: server-hpa
+  namespace: server
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: server-deployment
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 10 # define the replicas range and the scaling policy for the deployment
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: server-service
+  namespace: server
+  labels:
+    app: server
+spec:
+  selector:
+    app: server
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: NodePort # expose the service as NodePort type so that ALB can use it later.
+EOF
+
+
+
+
+cat > bind-server.yaml <<EOF
+---
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: server-ip-tg
+  namespace: server
+spec:
+  serviceRef:
+    name: server-service
+    port: 80
+  targetGroupARN: arn:aws:elasticloadbalancing:us-west-2:111122223333:targetgroup/ip-group/2eec55711e8e3539
+  networking:
+    ingress:
+    - from:
+      - securityGroup:
+          groupID: sg-02f057603b864cb04 # ALB SG
+      ports:
+      - protocol: TCP
+        port: 80
+EOF
