@@ -16,7 +16,7 @@ spec:
       #  eks.amazonaws.com/nodegroup: node2
       containers:
       - name: nginx
-        image: 679070983841.dkr.ecr.us-east-1.amazonaws.com/nginx:latest
+        image: 7992934234.dkr.ecr.us-east-1.amazonaws.com/nginx:latest
         ports:
         - containerPort: 80
 ---
